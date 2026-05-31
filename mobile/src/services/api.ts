@@ -1,7 +1,7 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export const API_BASE = 'https://YOUR_RAILWAY_URL.up.railway.app/api';
+export const API_BASE = 'https://tracking-app-s7vn.onrender.com/api';
 
 export const api = axios.create({ baseURL: API_BASE });
 
