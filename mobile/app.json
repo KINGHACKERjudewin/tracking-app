@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Trackr",
+    "slug": "trackr-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0B0D17"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.trackr.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0B0D17"
+      },
+      "package": "com.trackr.app"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "31cfcd80-1ad3-4f1f-ac6b-0a4ac7f1bbc3"
+      }
+    },
+    "owner": "kingsley_judewin"
+  }
+}
