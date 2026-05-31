@@ -1,74 +1,93 @@
-import React, { useState } from 'react';
-import {
-  View, Text, ScrollView, StyleSheet, TouchableOpacity,
-} from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { colors } from '../theme/colors';
 import SpreadsheetGrid, { Column, GridRow } from '../components/SpreadsheetGrid';
 import TaskEntryModal, { TaskData } from '../components/TaskEntryModal';
+import { taskService } from '../services/api';
 
 const COLUMNS: Column[] = [
-  { key: 'title',     label: 'Task',     width: 160, type: 'text' },
-  { key: 'category',  label: 'Category', width: 110, type: 'badge' },
-  { key: 'priority',  label: 'Priority', width: 100, type: 'priority' },
-  { key: 'dueDate',   label: 'Due',      width: 90,  type: 'date', align: 'center' },
-  { key: 'estTime',   label: 'Est.',     width: 70,  type: 'time', align: 'center' },
-  { key: 'status',    label: 'Status',   width: 120, type: 'status' },
-];
-
-const SAMPLE: GridRow[] = [
-  { id: '1', title: 'Redesign onboarding flow',   category: 'Work',     priority: 'High',   dueDate: 'Jun 5',  estTime: '4h',  status: 'In Progress' },
-  { id: '2', title: 'Write monthly report',        category: 'Work',     priority: 'Medium', dueDate: 'Jun 8',  estTime: '2h',  status: 'Todo' },
-  { id: '3', title: 'Morning run',                 category: 'Health',   priority: 'Medium', dueDate: 'Daily',  estTime: '45m', status: 'Done' },
-  { id: '4', title: 'Finish React Native course',  category: 'Learning', priority: 'Low',    dueDate: 'Jun 20', estTime: '3h',  status: 'In Progress' },
-  { id: '5', title: 'Review pull requests',        category: 'Work',     priority: 'High',   dueDate: 'Jun 4',  estTime: '1h',  status: 'Done' },
-  { id: '6', title: 'Meal prep Sunday',            category: 'Health',   priority: 'Low',    dueDate: 'Jun 7',  estTime: '1h',  status: 'Todo' },
+  { key: 'title',    label: 'Task',     width: 160, type: 'text' },
+  { key: 'category', label: 'Category', width: 110, type: 'badge' },
+  { key: 'priority', label: 'Priority', width: 100, type: 'priority' },
+  { key: 'dueDate',  label: 'Due',      width: 90,  type: 'date',   align: 'center' },
+  { key: 'estTime',  label: 'Est.',     width: 70,  type: 'time',   align: 'center' },
+  { key: 'status',   label: 'Status',   width: 120, type: 'status' },
 ];
 
 type Filter = 'All' | 'Todo' | 'In Progress' | 'Done';
 const FILTERS: Filter[] = ['All', 'Todo', 'In Progress', 'Done'];
-
 const FILTER_COLORS: Record<Filter, string> = {
-  All: colors.primary,
-  Todo: colors.textMuted,
-  'In Progress': colors.warning,
-  Done: colors.success,
+  All: colors.primary, Todo: colors.textMuted, 'In Progress': colors.warning, Done: colors.success,
 };
 
 export default function ProductivityScreen() {
-  const [filter, setFilter] = useState<Filter>('All');
-  const [tasks, setTasks] = useState<GridRow[]>(SAMPLE);
+  const [filter, setFilter]       = useState<Filter>('All');
+  const [tasks, setTasks]         = useState<GridRow[]>([]);
   const [showModal, setShowModal] = useState(false);
+  const [loading, setLoading]     = useState(true);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await taskService.getAll();
+      const rows: GridRow[] = res.data.map((t: any) => ({
+        id:       t.id,
+        title:    t.title,
+        category: t.category,
+        priority: t.priority,
+        dueDate:  t.due_date ? new Date(t.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—',
+        estTime:  t.estimated_hours > 0 ? `${t.estimated_hours}h${t.estimated_minutes > 0 ? ` ${t.estimated_minutes}m` : ''}` : '—',
+        status:   t.status,
+      }));
+      setTasks(rows);
+    } catch {
+      setTasks([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useFocusEffect(useCallback(() => { load(); }, []));
 
   const filtered = filter === 'All' ? tasks : tasks.filter(t => t.status === filter);
-
   const counts = FILTERS.reduce((acc, f) => {
     acc[f] = f === 'All' ? tasks.length : tasks.filter(t => t.status === f).length;
     return acc;
   }, {} as Record<Filter, number>);
 
-  const handleSave = (data: TaskData) => {
-    const row: GridRow = {
-      id: Date.now().toString(),
-      title: data.title,
-      category: data.category,
-      priority: data.priority,
-      dueDate: data.dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      estTime: `${data.estimatedHours}h${data.estimatedMinutes > 0 ? ` ${data.estimatedMinutes}m` : ''}`,
-      status: data.status,
-    };
-    setTasks(t => [row, ...t]);
+  const done = tasks.filter(t => t.status === 'Done').length;
+  const pct  = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
+
+  const handleSave = async (data: TaskData) => {
+    try {
+      await taskService.create({
+        title:             data.title,
+        category:          data.category,
+        priority:          data.priority,
+        status:            data.status,
+        due_date:          data.dueDate.toISOString().split('T')[0],
+        estimated_hours:   data.estimatedHours,
+        estimated_minutes: data.estimatedMinutes,
+        notes:             data.notes,
+      });
+      await load();
+    } catch {}
   };
 
-  const done   = tasks.filter(t => t.status === 'Done').length;
-  const pct    = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
+  const handleDelete = async (id: string) => {
+    try {
+      await taskService.remove(id);
+      setTasks(t => t.filter(r => r.id !== id));
+    } catch {}
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-        {/* Header */}
         <View style={styles.header}>
           <View>
             <Text style={styles.screenTitle}>Productivity</Text>
@@ -81,43 +100,35 @@ export default function ProductivityScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Progress bar */}
-        <View style={styles.progressCard}>
-          <View style={styles.progressTop}>
-            <Text style={styles.progressLabel}>Completion Rate</Text>
-            <Text style={styles.progressPct}>{pct}%</Text>
+        {tasks.length > 0 && (
+          <View style={styles.progressCard}>
+            <View style={styles.progressTop}>
+              <Text style={styles.progressLabel}>Completion Rate</Text>
+              <Text style={styles.progressPct}>{pct}%</Text>
+            </View>
+            <View style={styles.progressTrack}>
+              <LinearGradient colors={[colors.primary, colors.secondary]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.progressFill, { width: `${pct}%` as any }]} />
+            </View>
+            <View style={styles.progressStats}>
+              {[
+                { label: 'Todo',        count: counts.Todo,           color: colors.textMuted },
+                { label: 'In Progress', count: counts['In Progress'], color: colors.warning },
+                { label: 'Done',        count: counts.Done,           color: colors.success },
+              ].map(s => (
+                <View key={s.label} style={styles.progressStat}>
+                  <Text style={[styles.progressStatNum, { color: s.color }]}>{s.count}</Text>
+                  <Text style={styles.progressStatLabel}>{s.label}</Text>
+                </View>
+              ))}
+            </View>
           </View>
-          <View style={styles.progressTrack}>
-            <LinearGradient
-              colors={[colors.primary, colors.secondary]}
-              start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-              style={[styles.progressFill, { width: `${pct}%` as any }]}
-            />
-          </View>
-          <View style={styles.progressStats}>
-            {[
-              { label: 'Todo',        count: counts.Todo,          color: colors.textMuted },
-              { label: 'In Progress', count: counts['In Progress'], color: colors.warning },
-              { label: 'Done',        count: counts.Done,           color: colors.success },
-            ].map(s => (
-              <View key={s.label} style={styles.progressStat}>
-                <Text style={[styles.progressStatNum, { color: s.color }]}>{s.count}</Text>
-                <Text style={styles.progressStatLabel}>{s.label}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
+        )}
 
-        {/* Filter Tabs */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow} contentContainerStyle={{ gap: 8, paddingHorizontal: 16 }}>
           {FILTERS.map(f => {
             const isActive = filter === f;
             return (
-              <TouchableOpacity
-                key={f}
-                onPress={() => setFilter(f)}
-                style={[styles.filterTab, isActive && { backgroundColor: FILTER_COLORS[f] + '20', borderColor: FILTER_COLORS[f] }]}
-              >
+              <TouchableOpacity key={f} onPress={() => setFilter(f)} style={[styles.filterTab, isActive && { backgroundColor: FILTER_COLORS[f] + '20', borderColor: FILTER_COLORS[f] }]}>
                 <Text style={[styles.filterTabText, isActive && { color: FILTER_COLORS[f] }]}>{f}</Text>
                 <View style={[styles.filterBadge, { backgroundColor: isActive ? FILTER_COLORS[f] : colors.border }]}>
                   <Text style={[styles.filterBadgeText, { color: isActive ? colors.white : colors.textMuted }]}>{counts[f]}</Text>
@@ -127,14 +138,12 @@ export default function ProductivityScreen() {
           })}
         </ScrollView>
 
-        {/* Grid */}
         <View style={styles.gridSection}>
-          <SpreadsheetGrid
-            columns={COLUMNS}
-            data={filtered}
-            onRowDelete={id => setTasks(t => t.filter(r => r.id !== id))}
-            emptyText={`No ${filter === 'All' ? '' : filter.toLowerCase() + ' '}tasks`}
-          />
+          {loading ? (
+            <View style={styles.loader}><ActivityIndicator color={colors.primary} /></View>
+          ) : (
+            <SpreadsheetGrid columns={COLUMNS} data={filtered} onRowDelete={handleDelete} emptyText="No tasks yet — tap + to add one" />
+          )}
         </View>
       </ScrollView>
 
@@ -168,4 +177,5 @@ const styles = StyleSheet.create({
   filterBadge: { minWidth: 20, paddingHorizontal: 5, paddingVertical: 1, borderRadius: 8, alignItems: 'center' },
   filterBadgeText: { fontSize: 10, fontWeight: '700' },
   gridSection: { paddingHorizontal: 16 },
+  loader: { paddingVertical: 40, alignItems: 'center' },
 });
